@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supply & Demand Tax/Subsidy Visualization</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Supply & Demand Tax/Subsidy Visualization</h1>
+        
+        <div class="visualization-container">
+            <div class="results">
+                <div class="result-item">
+                    <h4>Consumer Surplus</h4>
+                    <p id="consumer-surplus">0.00</p>
+                </div>
+                <div class="result-item">
+                    <h4>Producer Surplus</h4>
+                    <p id="producer-surplus">0.00</p>
+                </div>
+                <div class="result-item" id="tax-revenue-box">
+                    <h4 id="tax-revenue-label">Tax Revenue</h4>
+                    <p id="tax-revenue">$0.00</p>
+                </div>
+                <div class="result-item">
+                    <h4>Deadweight Loss</h4>
+                    <p id="deadweight-loss">0.00</p>
+                </div>
+            </div>
+            <div class="middle-section">
+                <div id="graph"></div>
+            </div>
+            <div class="controls">
+                <div class="control-section">
+                    <h3>Elasticity Controls</h3>
+                    <div class="control-group">
+                        <label for="supply-elasticity">Supply Elasticity:</label>
+                        <input type="range" id="supply-elasticity" min="0.1" max="4.0" step="0.1" value="1">
+                        <span class="value-display" id="supply-elasticity-value">1.0</span>
+                    </div>
+                    <div class="control-group">
+                        <label for="demand-elasticity">Demand Elasticity:</label>
+                        <input type="range" id="demand-elasticity" min="0.1" max="4.0" step="0.1" value="1">
+                        <span class="value-display" id="demand-elasticity-value">1.0</span>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <div class="control-group">
+                        <div class="tax-recipient-control">
+                            <span>S</span>
+                            <input type="radio" name="tax-recipient" id="tax-recipient-s" value="S" checked>
+                            <input type="radio" name="tax-recipient" id="tax-recipient-d" value="D">
+                            <span>D</span>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label for="tax-amount">Subsidy (-) / Tax (+)</label>
+                        <input type="range" id="tax-amount" min="-3" max="3" step="0.1" value="0">
+                        <span class="value-display" id="tax-amount-value">0.0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 
