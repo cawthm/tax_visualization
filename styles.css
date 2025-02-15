@@ -98,6 +98,10 @@ h1 {
     background-color: rgba(231, 76, 60, 0.3);  /* Deadweight Loss - light red */
 }
 
+.result-item:nth-child(5) {
+    background-color: rgba(155, 89, 182, 0.3);  /* Tax Incidence - light purple */
+}
+
 /* Remove the white text override since we're using transparent backgrounds */
 .result-item h4,
 .result-item p {
@@ -304,6 +308,20 @@ input[type="range"] {
     align-items: center;
     gap: 4px;
     margin-bottom: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.recipient-label {
+    font-size: 0.7rem;
+    color: #666;
+    margin-bottom: 2px;
+}
+
+.tax-recipient-control .recipient-buttons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .tax-recipient-control span {
@@ -319,4 +337,77 @@ input[type="range"] {
 /* Remove all the old styles */
 .segmented-control, .toggle-labels, .toggle-switch, .toggle-slider {
     display: none;
+}
+
+.metric-box {
+    /* ... existing styles ... */
+}
+
+/* Remove the old tax incidence box styles */
+#tax-incidence-box {
+    padding: 0.35rem;
+    border-radius: 4px;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    background-color: rgba(255, 255, 255, 0.7);
+}
+
+#tax-incidence-label {
+    margin-bottom: 0.15rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+#tax-incidence {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 0;
+    line-height: 1;
+}
+
+#tax-incidence-formula {
+    font-size: 0.7rem;
+    color: #666;
+    margin-top: 0.1rem;
+}
+
+.value-with-unit {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 0.5rem;
+}
+
+.value-with-unit .value-display {
+    margin-left: 0;
+}
+
+.unit {
+    color: #4a5568;
+    font-size: 0.9rem;
+}
+
+.reset-button {
+    width: 100%;
+    padding: 8px 16px;
+    margin-top: 1rem;
+    background-color: #f8f9fa;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    color: #4a5568;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.reset-button:hover {
+    background-color: #edf2f7;
+    border-color: #a0aec0;
+}
+
+.reset-button:active {
+    background-color: #e2e8f0;
+    transform: translateY(1px);
 } 

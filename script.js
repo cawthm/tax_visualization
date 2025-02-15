@@ -45,57 +45,79 @@ svg.append('text')
     .attr('y', -15)  // Move down a bit
     .text('Price');
 
-// Modify state to remove taxEnabled and taxType, just keep taxAmount and taxRecipient
-let state = {
+// Store initial state values for reset
+const initialState = {
     supplyElasticity: 1,
     demandElasticity: 1,
-    taxAmount: 0,  // Can be negative (subsidy) or positive (tax)
-    taxRecipient: 'S',  // 'S' for supply, 'D' for demand
-    // Store the actual supply line endpoints
-    supplyLine: {
-        p1: { x: 0, y: 1 },    // y-intercept at $1
-        p2: { x: 90, y: 10 }   // slope of 0.1 (rise of 9 over run of 90)
+    taxAmount: 0,
+    taxRecipient: 'S',
+    supplyFunction: {
+        m: 0.1,
+        b: 1
     },
-    // Add demand line endpoints
-    demandLine: {
-        p1: { x: 0, y: 10 },   // Initial start point
-        p2: { x: 100, y: 0 }   // Initial end point
+    demandFunction: {
+        m: -0.1,
+        b: 10
+    }
+};
+
+// Initialize state as a deep copy of initialState
+let state = {
+    supplyElasticity: initialState.supplyElasticity,
+    demandElasticity: initialState.demandElasticity,
+    taxAmount: initialState.taxAmount,
+    taxRecipient: initialState.taxRecipient,
+    supplyFunction: {
+        m: initialState.supplyFunction.m,
+        b: initialState.supplyFunction.b
+    },
+    demandFunction: {
+        m: initialState.demandFunction.m,
+        b: initialState.demandFunction.b
     }
 };
 
 // Add after the state initialization
 let draggedCurve = null;
-let dragStartY = null;
+let dragStartPoints = null;
 
-// Helper functions
+// Helper function to get points where a line intersects the visible area
+function getVisibleSegment(lineFunction) {
+    const { m, b } = lineFunction;
+    const points = [];
+    
+    // Always include y-intercept
+    const yAtX0 = b;
+    points.push({ x: 0, y: yAtX0 });
+    
+    // Always include right boundary intersection
+    const yAtX100 = m * 100 + b;
+    points.push({ x: 100, y: yAtX100 });
+    
+    // Sort points by x-coordinate
+    points.sort((a, b) => a.x - b.x);
+    
+    // Return the points - no clipping needed as we want to show full lines
+    return points;
+}
+
+// Update the curve point getters to use our mathematical functions
 function getSupplyCurvePoints(elasticity, shift = 0) {
-    // For the base supply curve, just return the stored points
-    if (shift === 0 || state.taxRecipient === 'D') {
-        return [
-            { x: state.supplyLine.p1.x, y: state.supplyLine.p1.y },
-            { x: state.supplyLine.p2.x, y: state.supplyLine.p2.y }
-        ];
-    }
-    // For shifted supply curve (with tax), translate the points vertically
-    return [
-        { x: state.supplyLine.p1.x, y: state.supplyLine.p1.y + shift },
-        { x: state.supplyLine.p2.x, y: state.supplyLine.p2.y + shift }
-    ];
+    const shiftedFunction = {
+        m: state.supplyFunction.m,
+        b: state.supplyFunction.b + (shift * (state.taxRecipient === 'S' ? 1 : 0))
+    };
+    
+    return getVisibleSegment(shiftedFunction);
 }
 
 function getDemandCurvePoints(elasticity, shift = 0) {
-    // For the base demand curve, just return the stored points
-    if (shift === 0 || state.taxRecipient === 'S') {
-        return [
-            { x: state.demandLine.p1.x, y: state.demandLine.p1.y },
-            { x: state.demandLine.p2.x, y: state.demandLine.p2.y }
-        ];
-    }
-    // For shifted demand curve (with tax), translate the points vertically
-    return [
-        { x: state.demandLine.p1.x, y: state.demandLine.p1.y - shift },  // Subtract shift for demand (tax shifts demand down)
-        { x: state.demandLine.p2.x, y: state.demandLine.p2.y - shift }   // Negative shift (subsidy) moves up, positive (tax) moves down
-    ];
+    const shiftedFunction = {
+        m: state.demandFunction.m,
+        b: state.demandFunction.b - (shift * (state.taxRecipient === 'D' ? 1 : 0))
+    };
+    
+    return getVisibleSegment(shiftedFunction);
 }
 
 function calculateEquilibrium(supplyPoints, demandPoints) {
@@ -140,38 +162,65 @@ function getPointOnLine(point1, point2, x) {
     return point1.y + slope * (x - point1.x);
 }
 
-// Add before updateVisualization
+// Update the drag handlers to use function translation
 function handleDragStart(curve) {
     return function(event) {
         draggedCurve = curve;
-        dragStartY = event.y;
-        d3.select(this).raise().classed('active', true);
+        // Store the initial b value, mouse position, and current function
+        const initialMouseX = x.invert(event.x);
+        const initialMouseY = y.invert(event.y);
+        if (curve === 'supply') {
+            dragStartPoints = { 
+                b: state.supplyFunction.b,
+                mouseX: initialMouseX,
+                mouseY: initialMouseY,
+                m: state.supplyFunction.m
+            };
+        } else {
+            dragStartPoints = { 
+                b: state.demandFunction.b,
+                mouseX: initialMouseX,
+                mouseY: initialMouseY,
+                m: state.demandFunction.m
+            };
+        }
     };
 }
 
 function handleDrag(event) {
-    if (!draggedCurve) return;
+    if (!draggedCurve || !dragStartPoints) return;
     
-    // Only convert vertical movement to price units
-    const dy = y.invert(event.y) - y.invert(event.y - event.dy);
+    // Calculate the change in both x and y positions
+    const currentMouseX = x.invert(event.x);
+    const currentMouseY = y.invert(event.y);
+    const dx = currentMouseX - dragStartPoints.mouseX;
+    const dy = currentMouseY - dragStartPoints.mouseY;
     
+    // For any point (x,y) on the line:
+    // y = mx + b
+    // When we move the line, the new point (x+dx, y+dy) should satisfy:
+    // y + dy = m(x + dx) + newB
+    // Therefore:
+    // newB = (y + dy) - m(x + dx)
+    //      = y + dy - mx - m*dx
+    //      = (y - mx) + (dy - m*dx)
+    //      = b + (dy - m*dx)
+    
+    // Update the y-intercept based on both horizontal and vertical movement
     if (draggedCurve === 'supply') {
-        // Update only the y-coordinates of supply endpoints
-        state.supplyLine.p1.y += dy;
-        state.supplyLine.p2.y += dy;
+        const newB = dragStartPoints.b + (dy - dragStartPoints.m * dx);
+        state.supplyFunction.b = Math.max(-10, Math.min(20, newB));
     } else if (draggedCurve === 'demand') {
-        // Update only the y-coordinates of demand endpoints
-        state.demandLine.p1.y += dy;
-        state.demandLine.p2.y += dy;
+        const newB = dragStartPoints.b + (dy - dragStartPoints.m * dx);
+        state.demandFunction.b = Math.max(0, Math.min(20, newB));
     }
     
     updateVisualization();
 }
 
-function handleDragEnd() {
+function handleDragEnd(event) {
     draggedCurve = null;
-    dragStartY = null;
-    d3.select(this).classed('active', false);
+    dragStartPoints = null;
 }
 
 // Update visualization
@@ -179,15 +228,77 @@ function updateVisualization() {
     // Remove existing areas and labels
     svg.selectAll('.area').remove();
     svg.selectAll('.equilibrium-label').remove();
+    svg.selectAll('.supply-line').remove();
+    svg.selectAll('.demand-line').remove();
     
     // Calculate curve points
-    const taxShift = state.taxAmount;  // No need to check taxEnabled or taxType
+    const taxShift = state.taxAmount;
     
     const supplyPoints = getSupplyCurvePoints(state.supplyElasticity);
     const demandPoints = getDemandCurvePoints(state.demandElasticity);
     const shiftedSupplyPoints = getSupplyCurvePoints(state.supplyElasticity, taxShift);
     const shiftedDemandPoints = getDemandCurvePoints(state.demandElasticity, taxShift);
+
+    // Draw demand curve first (so supply appears on top)
+    const demandLine = d3.line()
+        .x(d => x(d.x))
+        .y(d => y(d.y));
     
+    // Draw base demand curve with drag behavior
+    const demandPath = svg.append('path')
+        .datum(demandPoints)
+        .attr('class', 'line demand-line')
+        .attr('d', demandLine)
+        .style('cursor', 'move');  // Change to four-direction cursor
+
+    // Add drag behavior for demand
+    const demandDrag = d3.drag()
+        .subject(function() { return {x: 0, y: 0}; })  // This helps stabilize the drag
+        .on('start', handleDragStart('demand'))
+        .on('drag', handleDrag)
+        .on('end', handleDragEnd);
+    
+    demandPath.call(demandDrag);
+
+    // Draw shifted demand curve if demand is tax recipient
+    if (Math.abs(taxShift) > 0 && state.taxRecipient === 'D') {
+        svg.append('path')
+            .datum(shiftedDemandPoints)
+            .attr('class', 'line demand-line')
+            .style('stroke-dasharray', '4,4')
+            .attr('d', demandLine);
+    }
+
+    // Draw supply curve
+    const supplyLine = d3.line()
+        .x(d => x(d.x))
+        .y(d => y(d.y));
+    
+    // Draw base supply curve with drag behavior
+    const supplyPath = svg.append('path')
+        .datum(supplyPoints)
+        .attr('class', 'line supply-line')
+        .attr('d', supplyLine)
+        .style('cursor', 'move');  // Change to four-direction cursor
+
+    // Add drag behavior for supply
+    const supplyDrag = d3.drag()
+        .subject(function() { return {x: 0, y: 0}; })  // This helps stabilize the drag
+        .on('start', handleDragStart('supply'))
+        .on('drag', handleDrag)
+        .on('end', handleDragEnd);
+    
+    supplyPath.call(supplyDrag);
+
+    // Draw shifted supply curve if supply is tax recipient
+    if (Math.abs(taxShift) > 0 && state.taxRecipient === 'S') {
+        svg.append('path')
+            .datum(shiftedSupplyPoints)
+            .attr('class', 'line supply-line')
+            .style('stroke-dasharray', '4,4')
+            .attr('d', supplyLine);
+    }
+
     // Calculate equilibrium points
     const baseEquilibrium = calculateEquilibrium(supplyPoints, demandPoints);
     const newEquilibrium = Math.abs(taxShift) > 0 ? 
@@ -204,18 +315,18 @@ function updateVisualization() {
         .attr('y', y(baseEquilibrium.y))
         .attr('text-anchor', 'end')
         .attr('alignment-baseline', 'middle')
-        .attr('font-size', '12px')
+        .attr('font-size', '14px')
         .attr('fill', Math.abs(taxShift) > 0 ? '#999' : '#666')
-        .html('P<tspan baseline-shift="sub" font-size="8px">E</tspan>');
+        .html('P<tspan baseline-shift="sub" font-size="10px">E</tspan>');
 
     svg.append('text')
         .attr('class', 'equilibrium-label')
         .attr('x', x(baseEquilibrium.x))
         .attr('y', y(0) + 35)
         .attr('text-anchor', 'middle')
-        .attr('font-size', '12px')
+        .attr('font-size', '14px')
         .attr('fill', Math.abs(taxShift) > 0 ? '#999' : '#666')
-        .html('Q<tspan baseline-shift="sub" font-size="8px">E</tspan>');
+        .html('Q<tspan baseline-shift="sub" font-size="10px">E</tspan>');
 
     // Add extended dashed lines to axes for original equilibrium
     svg.append('line')
@@ -250,8 +361,8 @@ function updateVisualization() {
             .attr('y', y(postTaxPrice))
             .attr('text-anchor', 'end')
             .attr('alignment-baseline', 'middle')
-            .attr('font-size', '12px')
-            .html('P<tspan baseline-shift="sub" font-size="8px">Paid</tspan>');
+            .attr('font-size', '14px')
+            .html('P<tspan baseline-shift="sub" font-size="10px">Paid</tspan>');
 
         // PRecd label
         svg.append('text')
@@ -260,8 +371,8 @@ function updateVisualization() {
             .attr('y', y(preTaxPrice))
             .attr('text-anchor', 'end')
             .attr('alignment-baseline', 'middle')
-            .attr('font-size', '12px')
-            .html('P<tspan baseline-shift="sub" font-size="8px">Rec\'d</tspan>');
+            .attr('font-size', '14px')
+            .html('P<tspan baseline-shift="sub" font-size="10px">Rec\'d</tspan>');
 
         // Q label with appropriate subscript
         svg.append('text')
@@ -269,8 +380,8 @@ function updateVisualization() {
             .attr('x', x(newEquilibrium.x))
             .attr('y', y(0) + 50)  // Position below QE
             .attr('text-anchor', 'middle')
-            .attr('font-size', '12px')
-            .html(`Q<tspan baseline-shift="sub" font-size="8px">${taxShift > 0 ? 'Tax' : 'Subsidy'}</tspan>`);
+            .attr('font-size', '14px')
+            .html(`Q<tspan baseline-shift="sub" font-size="10px">${taxShift > 0 ? 'Tax' : 'Subsidy'}</tspan>`);
 
         // Add dashed lines for new prices and quantity
         // PPaid horizontal line
@@ -401,60 +512,6 @@ function updateVisualization() {
                 .y(d => y(d.y)));
     }
 
-    // Draw supply curve
-    const supplyLine = d3.line()
-        .x(d => x(d.x))
-        .y(d => y(d.y));
-
-    svg.selectAll('.supply-line').remove();
-    
-    // Draw base supply curve with drag behavior
-    const supplyPath = svg.append('path')
-        .datum(supplyPoints)
-        .attr('class', 'line supply-line')
-        .attr('d', supplyLine)
-        .style('cursor', 'ns-resize')
-        .call(d3.drag()
-            .on('start', handleDragStart('supply'))
-            .on('drag', handleDrag)
-            .on('end', handleDragEnd));
-
-    // Draw shifted supply curve if supply is tax recipient
-    if (Math.abs(taxShift) > 0 && state.taxRecipient === 'S') {
-        svg.append('path')
-            .datum(shiftedSupplyPoints)
-            .attr('class', 'line supply-line')
-            .style('stroke-dasharray', '4,4')
-            .attr('d', supplyLine);
-    }
-
-    // Draw demand curve
-    const demandLine = d3.line()
-        .x(d => x(d.x))
-        .y(d => y(d.y));
-
-    svg.selectAll('.demand-line').remove();
-    
-    // Draw base demand curve with drag behavior
-    svg.append('path')
-        .datum(demandPoints)
-        .attr('class', 'line demand-line')
-        .attr('d', demandLine)
-        .style('cursor', 'ns-resize')
-        .call(d3.drag()
-            .on('start', handleDragStart('demand'))
-            .on('drag', handleDrag)
-            .on('end', handleDragEnd));
-
-    // Draw shifted demand curve if demand is tax recipient
-    if (Math.abs(taxShift) > 0 && state.taxRecipient === 'D') {
-        svg.append('path')
-            .datum(shiftedDemandPoints)
-            .attr('class', 'line demand-line')
-            .style('stroke-dasharray', '4,4')
-            .attr('d', demandLine);
-    }
-
     // Calculate and update surpluses
     const baseSurplus = calculateSurplus(baseEquilibrium, supplyPoints, demandPoints);
     let newSurplus;
@@ -482,19 +539,48 @@ function updateVisualization() {
     let deadweightLoss = 0;
     
     if (Math.abs(taxShift) > 0) {
+        const postTaxPrice = state.taxRecipient === 'S' ? newEquilibrium.y : newEquilibrium.y + taxShift;
+        const preTaxPrice = state.taxRecipient === 'S' ? newEquilibrium.y - taxShift : newEquilibrium.y;
+        
+        // Calculate tax revenue
         taxRevenue = Math.abs(taxShift * newEquilibrium.x);
         
-        // Calculate deadweight loss as the area of the triangle
-        // Get the points on supply and demand curves at the new quantity
+        // Calculate consumer's share of tax/subsidy burden
+        const priceChangeFromEquilibrium = Math.abs(postTaxPrice - baseEquilibrium.y);
+        const consumerShare = (priceChangeFromEquilibrium / Math.abs(taxShift)) * 100;
+        
+        // Update tax incidence display
+        const tiElement = document.getElementById('tax-incidence');
+        const tiLabel = tiElement?.parentElement?.querySelector('h4');
+        const tiFormula = document.getElementById('tax-incidence-formula');
+        
+        if (tiElement && tiLabel) {
+            tiElement.textContent = `${consumerShare.toFixed(1)}%`;
+            tiLabel.textContent = taxShift > 0 ? 
+                'Tax Incidence' : 
+                'Subsidy Incidence';
+            if (tiFormula) {
+                tiFormula.innerHTML = taxShift > 0 ?
+                    '(P<sub>paid</sub> - P<sub>E</sub>) / Tax' :
+                    '(P<sub>E</sub> - P<sub>paid</sub>) / |Subsidy|';
+            }
+        }
+        
+        // Calculate deadweight loss
         const supplyPoint = getPointOnLine(supplyPoints[0], supplyPoints[1], newEquilibrium.x);
         const demandPoint = getPointOnLine(demandPoints[0], demandPoints[1], newEquilibrium.x);
-        
-        // Triangle base = difference between points on supply and demand curves
         const triangleHeight = Math.abs(supplyPoint - demandPoint);
-        // Triangle height = difference between new and original equilibrium quantity
         const triangleBase = Math.abs(newEquilibrium.x - baseEquilibrium.x);
-        
         deadweightLoss = (triangleBase * triangleHeight) / 2;
+    } else {
+        // No tax/subsidy case
+        const tiElement = document.getElementById('tax-incidence');
+        const tiLabel = tiElement?.parentElement?.querySelector('h4');
+        const tiFormula = document.getElementById('tax-incidence-formula');
+        
+        if (tiElement) tiElement.textContent = '—';
+        if (tiLabel) tiLabel.textContent = 'Tax Incidence';
+        if (tiFormula) tiFormula.innerHTML = '(P<sub>paid</sub> - P<sub>E</sub>) / Tax';
     }
 
     // Update display values
@@ -523,41 +609,17 @@ function updateVisualization() {
     if (trElement) trElement.textContent = `$${taxRevenue.toFixed(2)}`;
     if (dwlElement) dwlElement.textContent = `$${deadweightLoss.toFixed(2)}`;
     
-    // Update tax revenue box style and label based on tax/subsidy
     if (trBox && trLabel) {
-        if (taxShift < 0) {  // Subsidy case
-            trLabel.textContent = 'Subsidy Cost';
-        } else {  // Tax or no tax case
-            trLabel.textContent = 'Tax Revenue';
-        }
+        trLabel.textContent = taxShift < 0 ? 'Subsidy Cost' : 'Tax Revenue';
     }
 }
 
-// Event listeners
+// Update the elasticity event listeners to modify slopes
 document.getElementById('supply-elasticity').addEventListener('input', (e) => {
     const newElasticity = parseFloat(e.target.value);
-    // Calculate new slope - more elastic = flatter (smaller slope)
-    const baseSlope = 0.1;  // This is our reference slope that corresponds to elasticity of 1.0
-    const newSlope = baseSlope / newElasticity;  // Divide by elasticity to make it flatter
-    
-    // Fix p1 at (0, $1)
-    state.supplyLine.p1 = { x: 0, y: 1 };
-    
-    // Find where line hits either price ceiling ($10) or quantity limit (100)
-    // Using point-slope form: (y - y1) = m(x - x1)
-    // Solve for x when y = 10: x = (10 - 1)/m
-    const xAtPriceCeiling = (10 - 1) / newSlope;
-    
-    if (xAtPriceCeiling <= 100) {
-        // Line hits price ceiling before quantity limit
-        state.supplyLine.p2 = { x: xAtPriceCeiling, y: 10 };
-    } else {
-        // Line hits quantity limit first
-        // Find y at x = 100: y = m(100) + 1
-        const yAtQuantityLimit = newSlope * 100 + 1;
-        state.supplyLine.p2 = { x: 100, y: yAtQuantityLimit };
-    }
-    
+    // More elastic = flatter (smaller slope)
+    const baseSlope = 0.1;  // Reference slope for elasticity of 1.0
+    state.supplyFunction.m = baseSlope / newElasticity;
     state.supplyElasticity = newElasticity;
     document.getElementById('supply-elasticity-value').textContent = newElasticity.toFixed(1);
     updateVisualization();
@@ -565,28 +627,9 @@ document.getElementById('supply-elasticity').addEventListener('input', (e) => {
 
 document.getElementById('demand-elasticity').addEventListener('input', (e) => {
     const newElasticity = parseFloat(e.target.value);
-    // Calculate new slope - more elastic = flatter (smaller absolute slope)
-    const baseSlope = -0.1;  // This is our reference slope that corresponds to elasticity of 1.0
-    const newSlope = baseSlope / newElasticity;  // Divide by elasticity to make it flatter
-    
-    // Fix p1 at (0, $10)
-    state.demandLine.p1 = { x: 0, y: 10 };
-    
-    // Find where line hits either price floor ($0) or quantity limit (100)
-    // Using point-slope form: (y - y1) = m(x - x1)
-    // Solve for x when y = 0: x = (0 - 10)/m
-    const xAtPriceFloor = (0 - 10) / newSlope;
-    
-    if (xAtPriceFloor <= 100) {
-        // Line hits price floor before quantity limit
-        state.demandLine.p2 = { x: xAtPriceFloor, y: 0 };
-    } else {
-        // Line hits quantity limit first
-        // Find y at x = 100: y = m(100) + 10
-        const yAtQuantityLimit = newSlope * 100 + 10;
-        state.demandLine.p2 = { x: 100, y: yAtQuantityLimit };
-    }
-    
+    // More elastic = flatter (smaller absolute slope)
+    const baseSlope = -0.1;  // Reference slope for elasticity of 1.0
+    state.demandFunction.m = baseSlope / newElasticity;
     state.demandElasticity = newElasticity;
     document.getElementById('demand-elasticity-value').textContent = newElasticity.toFixed(1);
     updateVisualization();
@@ -594,7 +637,7 @@ document.getElementById('demand-elasticity').addEventListener('input', (e) => {
 
 document.getElementById('tax-amount').addEventListener('input', (e) => {
     state.taxAmount = parseFloat(e.target.value);
-    document.getElementById('tax-amount-value').textContent = state.taxAmount.toFixed(1);
+    document.getElementById('tax-amount-value').textContent = `$${state.taxAmount.toFixed(1)}`;
     updateVisualization();
 });
 
@@ -612,6 +655,51 @@ document.getElementById('tax-recipient-d').addEventListener('change', (e) => {
         updateVisualization();
     }
 });
+
+// Add reset functionality
+function resetToInitialState() {
+    state = {
+        supplyElasticity: initialState.supplyElasticity,
+        demandElasticity: initialState.demandElasticity,
+        taxAmount: initialState.taxAmount,
+        taxRecipient: initialState.taxRecipient,
+        supplyFunction: {
+            m: initialState.supplyFunction.m,
+            b: initialState.supplyFunction.b
+        },
+        demandFunction: {
+            m: initialState.demandFunction.m,
+            b: initialState.demandFunction.b
+        }
+    };
+    
+    // Reset UI elements
+    document.getElementById('supply-elasticity').value = initialState.supplyElasticity;
+    document.getElementById('supply-elasticity-value').textContent = initialState.supplyElasticity.toFixed(1);
+    document.getElementById('demand-elasticity').value = initialState.demandElasticity;
+    document.getElementById('demand-elasticity-value').textContent = initialState.demandElasticity.toFixed(1);
+    document.getElementById('tax-amount').value = initialState.taxAmount;
+    document.getElementById('tax-amount-value').textContent = `$${initialState.taxAmount.toFixed(1)}`;
+    document.getElementById('tax-recipient-s').checked = true;
+    
+    updateVisualization();
+}
+
+// Add reset button event listener
+const resetButton = document.getElementById('reset-params');
+if (resetButton) {
+    resetButton.addEventListener('click', resetToInitialState);
+}
+
+// Add draggable curve indicator
+svg.append('text')
+    .attr('class', 'drag-indicator')
+    .attr('x', width - 160)  // Moved left from width-100 to width-160
+    .attr('y', 0)  // Moved up from 5 to 0
+    .attr('text-anchor', 'end')
+    .attr('font-size', '12px')
+    .attr('fill', '#66666670')  // Changed transparency from 50% (80) to 70% (70)
+    .text('↔ Drag curves to shift them');
 
 // Initial render
 updateVisualization(); 
