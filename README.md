@@ -1,5 +1,7 @@
 # Economics Tax & Subsidy Visualization
 
+**[View Live Demo](https://cawthm.github.io/tax_visualization/)**
+
 An interactive web visualization tool for teaching the effects of taxes and subsidies on supply and demand curves. This tool helps students understand:
 - Supply and demand equilibrium
 - Impact of taxes and subsidies
